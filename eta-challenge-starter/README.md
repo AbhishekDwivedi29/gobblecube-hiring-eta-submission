@@ -107,7 +107,7 @@ understanding before you start training anything fancy.
 ## Baseline Submission
 
 ```bash
-git clone https://github.com/gobblecube/arena
+git clone https://github.com/gobblecube-hiring/arena
 cd arena/eta-challenge-starter
 
 python -m venv .venv && source .venv/bin/activate
