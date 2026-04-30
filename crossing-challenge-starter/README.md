@@ -324,4 +324,4 @@ rarely background. It's almost always mindset.
 
 ---
 
-*Submit your repo URL to agentic-hiring@gobblecube.ai. Questions welcome at the same address.*
+*Submit your repo URL and LinkedIn profile to agentic-hiring@gobblecube.ai. Questions welcome at the same address.*

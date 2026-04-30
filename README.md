@@ -55,4 +55,4 @@ with no write-up. We read three things, roughly in this order:
    Your README explains what you tried, what failed, and what the next
    experiment would be if you kept going.
 
-Submit your repo URL to agentic-hiring@gobblecube.ai.
+Submit your repo URL and LinkedIn profile to agentic-hiring@gobblecube.ai.

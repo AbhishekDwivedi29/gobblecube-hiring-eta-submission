@@ -217,4 +217,4 @@ Good luck. We're excited to see what you ship.
 
 ---
 
-*Submit your repo URL to agentic-hiring@gobblecube.ai. Questions welcome at the same address.*
+*Submit your repo URL and LinkedIn profile to agentic-hiring@gobblecube.ai. Questions welcome at the same address.*
