@@ -178,8 +178,22 @@ def main() -> None:
     print(f"  Final Hybrid MAE: {final_mae:.1f} seconds")
     print(f"  Improvement:      {baseline_mae - final_mae:.1f} seconds")
 
+    # --- 7. Deep Dive Error Analysis ---
+    print("\n🔍 Deep Dive: Error Analysis")
+    # Add our final predictions and calculate the absolute error per row
+    dev["final_pred"] = final_preds
+    dev["abs_error"] = np.abs(dev["final_pred"] - dev["duration_seconds"])
+    
+    
+    print("  Top 20 Worst Predictions:")
+    # Sort the dataframe by the biggest errors descending
+    worst_20 = dev.nlargest(20, "abs_error")
+    
+    # Select just the columns that help us understand *why* it missed
+    display_cols = ["pickup_zone", "dropoff_zone", "hour", "duration_seconds", "final_pred", "abs_error"]
+    print(worst_20[display_cols].to_string(index=False))
 
-    # --- 7 . Save Artifacts ---
+    # --- 8 . Save Artifacts ---
     model_artifact = {
         "lookups": lookup_dicts,
         "lgbm_model": bst,
