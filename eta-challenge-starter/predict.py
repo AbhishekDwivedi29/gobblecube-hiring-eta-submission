@@ -1,7 +1,6 @@
 """Submission interface — this is what Gobblecube's grader imports.
 
-The grader will call `predict` once per held-out request. The signature below
-is fixed; everything else (model type, preprocessing, etc.) is yours to change.
+This version uses a multi-tier lookup (Hourly/Route/Global) instead of XGBoost.
 """
 
 from __future__ import annotations
@@ -10,42 +9,37 @@ import pickle
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
-
-_MODEL_PATH = Path(__file__).parent / "model.pkl"
+# Update this path to match your saved lookup artifact
+_MODEL_PATH = Path(__file__).parent / "hourly_lookup_model.pkl"
 
 with open(_MODEL_PATH, "rb") as _f:
-    _MODEL = pickle.load(_f)
-# Disable xgboost's feature-name validation so we can predict on a bare
-# numpy array (skips per-call DataFrame construction overhead).
-if hasattr(_MODEL, "get_booster"):
-    _MODEL.get_booster().feature_names = None
+    # This now loads the dictionary containing our 3 tiers of medians
+    _MODEL_DATA = pickle.load(_f)
 
-# Feature order must match baseline.py:
-#   pickup_zone, dropoff_zone, hour, dow, month, passenger_count
+_HOURLY_MEDIANS = _MODEL_DATA["hourly_zone_medians"]
+_ZONE_MEDIANS = _MODEL_DATA["zone_medians"]
+_GLOBAL_MEDIAN = _MODEL_DATA["global_median"]
 
 
 def predict(request: dict) -> float:
-    """Predict trip duration in seconds.
-
-    Input schema:
-        {
-            "pickup_zone":     int,   # NYC taxi zone, 1-265
-            "dropoff_zone":    int,
-            "requested_at":    str,   # ISO 8601 datetime
-            "passenger_count": int,
-        }
-    """
+    """Predict trip duration using tiered median lookups."""
+    
+    # 1. Preprocessing (Extracting features from the 4-item request)
+    pz = int(request["pickup_zone"])
+    dz = int(request["dropoff_zone"])
     ts = datetime.fromisoformat(request["requested_at"])
-    x = np.array(
-        [[
-            int(request["pickup_zone"]),
-            int(request["dropoff_zone"]),
-            ts.hour,
-            ts.weekday(),
-            ts.month,
-            int(request["passenger_count"]),
-        ]],
-        dtype=np.int32,
-    )
-    return float(_MODEL.predict(x)[0])
+    hour = ts.hour
+
+    # 2. Tier 1: Exact Match (Route + Hour)
+    # We use .get() because dictionaries return None if the key doesn't exist
+    prediction = _HOURLY_MEDIANS.get((pz, dz, hour))
+    if prediction is not None:
+        return float(prediction)
+
+    # 3. Tier 2: Route Fallback (Ignore the hour)
+    prediction = _ZONE_MEDIANS.get((pz, dz))
+    if prediction is not None:
+        return float(prediction)
+
+    # 4. Tier 3: Global Safety Net
+    return float(_GLOBAL_MEDIAN)

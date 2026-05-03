@@ -12,3 +12,6 @@ data/sample_1M.parquet
 
 # Docker cache
 .docker_cache/
+
+hourly_lookup_model.pkl
+model.pkl
