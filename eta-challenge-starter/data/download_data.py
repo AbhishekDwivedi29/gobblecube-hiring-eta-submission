@@ -40,7 +40,8 @@ def download_month(yyyymm: str) -> Path:
     return out
 
 
-def clean(paths: list[Path]) -> pd.DataFrame:
+def clean_base(paths: list[Path]) -> pd.DataFrame:
+    """Applies universal sanity filters before splitting."""
     frames = []
     for p in paths:
         df = pd.read_parquet(
@@ -69,6 +70,7 @@ def clean(paths: list[Path]) -> pd.DataFrame:
         "_ts":              df["tpep_pickup_datetime"],
     })
 
+    # Apply base sanity filters
     mask = (
         (clean_df["duration_seconds"] >= 30)
         & (clean_df["duration_seconds"] <= 3 * 3600)
@@ -80,35 +82,76 @@ def clean(paths: list[Path]) -> pd.DataFrame:
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Splits data into train and dev based on the CUTOFF date."""
     train = df[df["_ts"] < CUTOFF].drop(columns=["_ts"]).reset_index(drop=True)
     dev = df[df["_ts"] >= CUTOFF].drop(columns=["_ts"]).reset_index(drop=True)
     return train, dev
+
+
+def apply_leak_free_thresholds(train: pd.DataFrame, dev: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Calculates 99th percentile limits on train ONLY and applies to both train and dev."""
+    
+    # 1. Isolate same-zone trips strictly from the training set
+    train_same_zone = train[train["pickup_zone"] == train["dropoff_zone"]]
+    
+    # 2. Calculate thresholds for specific known routes
+    p99_thresholds = train_same_zone.groupby("pickup_zone")["duration_seconds"].quantile(0.99)
+    
+    # 3. Calculate a global fallback for unseen routes in dev
+    global_p99 = train_same_zone["duration_seconds"].quantile(0.99)
+
+    def filter_outliers(df: pd.DataFrame) -> pd.DataFrame:
+        is_same_zone = df["pickup_zone"] == df["dropoff_zone"]
+        
+        # Map the specific thresholds to the dataframe. 
+        # If a zone isn't in the train thresholds (NaN), fill it with the global fallback.
+        mapped_thresholds = df["pickup_zone"].map(p99_thresholds).fillna(global_p99)
+        
+        # Keep row if: Not same-zone OR (same-zone AND duration <= threshold)
+        keep_mask = (~is_same_zone) | (df["duration_seconds"] <= mapped_thresholds)
+        
+        return df.loc[keep_mask].reset_index(drop=True)
+
+    # 4. Filter both datasets using the train-derived limits
+    train_filtered = filter_outliers(train)
+    dev_filtered = filter_outliers(dev)
+    
+    return train_filtered, dev_filtered
 
 
 def main() -> None:
     print("Step 1: download monthly parquets")
     paths = [download_month(m) for m in MONTHS]
 
-    print("\nStep 2: clean & combine")
-    df = clean(paths)
-    print(f"  cleaned: {len(df):,} trips")
+    print("\nStep 2: base clean & combine")
+    df = clean_base(paths)
+    print(f"  base cleaned: {len(df):,} trips")
 
-    print("\nStep 3: train/dev split")
+    print("\nStep 3: train/dev split (to prevent data leakage)")
     train, dev = split(df)
+
+    print("\nStep 4: calculate & apply 99th percentile limits (same-zone)")
+    train, dev = apply_leak_free_thresholds(train, dev)
+    
+    print("\nStep 5: save final outputs")
     train.to_parquet(DATA_DIR / "train.parquet", index=False)
     dev.to_parquet(DATA_DIR / "dev.parquet", index=False)
     print(f"  train.parquet: {len(train):,} rows")
     print(f"  dev.parquet:   {len(dev):,} rows")
 
-    print("\nStep 4: 1M-row training sample")
+    print("\nStep 6: 1M-row training sample")
     sample = train.sample(n=min(SAMPLE_SIZE, len(train)), random_state=42)
     sample.reset_index(drop=True).to_parquet(
         DATA_DIR / "sample_1M.parquet", index=False
     )
     print(f"  sample_1M.parquet: {len(sample):,} rows")
 
-    print("\nDone. Next: `python baseline.py`")
+    
+
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("aborted")

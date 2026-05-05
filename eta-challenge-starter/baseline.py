@@ -27,7 +27,7 @@ DATA_DIR = Path(__file__).parent / "data"
 MODEL_PATH = Path(__file__).parent / "model.pkl"
 
 # Categorical features need specific handling in LightGBM
-CATEGORICAL_FEATURES = ["pickup_zone", "dropoff_zone", "hour", "dayofweek", "month"]
+CATEGORICAL_FEATURES = ["pickup_zone", "dropoff_zone", "hour", "dayofweek", "month", "is_weekend"]
 FEATURES = CATEGORICAL_FEATURES + ["passenger_count"]
 
 
@@ -55,6 +55,7 @@ def main() -> None:
         df["requested_at"] = pd.to_datetime(df["requested_at"])
         df["hour"] = df["requested_at"].dt.hour.astype("int8")
         df["dayofweek"] = df["requested_at"].dt.dayofweek.astype("int8")
+        df["is_weekend"] = (df["dayofweek"] >= 5).astype("int8") # <-- ADDED THIS LINE
         df["month"] = df["requested_at"].dt.month.astype("int8")
         df["passenger_count"] = df["passenger_count"].astype("int8")
     print(f"  features extracted in {time.time() - t0_feat:.1f}s")
@@ -208,5 +209,7 @@ def main() -> None:
     
 
 if __name__ == "__main__":
-    main()
-    
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("aborted")

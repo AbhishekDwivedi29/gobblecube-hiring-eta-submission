@@ -25,7 +25,7 @@ _GLOBAL_MEDIAN = _LOOKUPS["global"]
 
 _LGBM_MODEL = _MODEL_DATA["lgbm_model"]
 # Expected feature order from training: 
-# ["pickup_zone", "dropoff_zone", "hour", "dayofweek", "month", "passenger_count"]
+# ["pickup_zone", "dropoff_zone", "hour", "dayofweek", "month", "is_weekend", "passenger_count"]
 
 def predict(request: dict) -> float:
     """Predict trip duration using tiered median lookups + LightGBM residuals."""
@@ -36,8 +36,9 @@ def predict(request: dict) -> float:
     ts = datetime.fromisoformat(request["requested_at"])
     
     hour = ts.hour
-    dow = ts.weekday()  # .weekday() maps to 0-6, matching pandas .dt.dayofweek
+    dow = ts.weekday()  # .weekday() maps to 0-6
     month = ts.month
+    is_weekend = int(dow >= 5)  # <-- ADDED: Calculate is_weekend (1 if Sat/Sun, else 0)
     passenger_count = int(request.get("passenger_count", 1))
 
     # --- 2. Base Prediction (3-Tier Fallback) ---
@@ -49,8 +50,9 @@ def predict(request: dict) -> float:
             
     # --- 3. LightGBM Residual Prediction ---
     # We pass a 2D list to avoid pandas dataframe overhead at inference time.
-    # LightGBM handles the raw integers perfectly because it relies on column index order.
-    features = [[pz, dz, hour, dow, month, passenger_count]]
+    # Feature order MUST match the training FEATURES list: 
+    # [pickup_zone, dropoff_zone, hour, dayofweek, month, is_weekend, passenger_count]
+    features = [[pz, dz, hour, dow, month, is_weekend, passenger_count]] # <-- ADDED: is_weekend
     residual_pred = _LGBM_MODEL.predict(features)[0]
 
     # --- 4. Final Combination ---
