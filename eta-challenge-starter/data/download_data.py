@@ -41,7 +41,7 @@ def download_month(yyyymm: str) -> Path:
 
 
 def clean_base(paths: list[Path]) -> pd.DataFrame:
-    """Applies universal sanity filters before splitting."""
+    """Applies universal sanity filters and removes duplicates before splitting."""
     frames = []
     for p in paths:
         df = pd.read_parquet(
@@ -78,7 +78,56 @@ def clean_base(paths: list[Path]) -> pd.DataFrame:
         & (clean_df["dropoff_zone"].between(1, 265))
         & (clean_df["_ts"].dt.year == 2023)
     )
-    return clean_df.loc[mask].reset_index(drop=True)
+    
+    clean_df = clean_df.loc[mask].reset_index(drop=True)
+
+    # --- NEW: Check for and remove duplicates ---
+    duplicate_count = clean_df.duplicated().sum()
+    print(f"  Found {duplicate_count:,} duplicate records.")
+    
+    if duplicate_count > 0:
+        clean_df = clean_df.drop_duplicates(ignore_index=True)
+        print("  Duplicates successfully removed.")
+
+    return clean_df
+
+
+def apply_speed_ratio_filter(df: pd.DataFrame, osrm_csv_path: str | Path) -> pd.DataFrame:
+    """Filters records based on the ratio of actual speed to OSRM speed."""
+    initial_count = len(df)
+    
+    # Load the OSRM matrix
+    osrm_df = pd.read_csv(osrm_csv_path)
+    
+    # Merge OSRM distance and speed data onto our main dataframe
+    merged = df.merge(
+        osrm_df[["pickup_zone", "dropoff_zone", "osrm_distance_meters", "speed_kmph"]],
+        on=["pickup_zone", "dropoff_zone"],
+        how="left"
+    )
+    
+    # Calculate actual speed in km/h: (meters / seconds) * 3.6
+    # Note: duration_seconds is guaranteed to be >= 30 from clean_base
+    actual_speed_kmph = (merged["osrm_distance_meters"] / merged["duration_seconds"]) * 3.6
+    
+    # Calculate ratio (replace 0.0 with NA to prevent division by zero for same-zone trips)
+    speed_ratio = actual_speed_kmph / merged["speed_kmph"].replace(0.0, pd.NA)
+    
+    # Create masks
+    ratio_mask = (speed_ratio >= 0.2) & (speed_ratio <= 1.5)
+    
+    # Preserve same-zone trips. OSRM gives them 0 distance/speed, causing ratio to be NA.
+    # They are strictly required for the thresholds in Step 4.
+    same_zone_mask = (df["pickup_zone"] == df["dropoff_zone"])
+    
+    final_mask = ratio_mask | same_zone_mask
+    
+    filtered_df = df.loc[final_mask].reset_index(drop=True)
+    
+    dropped_count = initial_count - len(filtered_df)
+    print(f"  Dropped {dropped_count:,} records outside speed ratio 0.2 - 1.5")
+    
+    return filtered_df
 
 
 def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -127,19 +176,25 @@ def main() -> None:
     df = clean_base(paths)
     print(f"  base cleaned: {len(df):,} trips")
 
-    print("\nStep 3: train/dev split (to prevent data leakage)")
+    print("\nStep 3: filter using OSRM speed ratio")
+    # Make sure 'osrm_matrix_with_speed.csv' is in your working directory or adjust the path below
+    osrm_csv = "data/osrm_matrix_with_speed.csv" 
+    df = apply_speed_ratio_filter(df, osrm_csv)
+    print(f"  records remaining: {len(df):,}")
+
+    print("\nStep 4: train/dev split (to prevent data leakage)")
     train, dev = split(df)
 
-    print("\nStep 4: calculate & apply 99th percentile limits (same-zone)")
+    print("\nStep 5: calculate & apply 99th percentile limits (same-zone)")
     train, dev = apply_leak_free_thresholds(train, dev)
     
-    print("\nStep 5: save final outputs")
+    print("\nStep 6: save final outputs")
     train.to_parquet(DATA_DIR / "train.parquet", index=False)
     dev.to_parquet(DATA_DIR / "dev.parquet", index=False)
     print(f"  train.parquet: {len(train):,} rows")
     print(f"  dev.parquet:   {len(dev):,} rows")
 
-    print("\nStep 6: 1M-row training sample")
+    print("\nStep 7: 1M-row training sample")
     sample = train.sample(n=min(SAMPLE_SIZE, len(train)), random_state=42)
     sample.reset_index(drop=True).to_parquet(
         DATA_DIR / "sample_1M.parquet", index=False
@@ -147,9 +202,6 @@ def main() -> None:
     print(f"  sample_1M.parquet: {len(sample):,} rows")
 
     
-
-
-
 if __name__ == "__main__":
     try:
         main()

@@ -21,20 +21,20 @@ DATA_DIR = Path(__file__).parent / "data"
 MODEL_PATH = Path(__file__).parent / "model.pkl"
 
 # Categorical features need specific handling in LightGBM
-CATEGORICAL_FEATURES = ["pickup_zone", "dropoff_zone", "hour", "dayofweek", "month", "is_weekend"]
+CATEGORICAL_FEATURES = [
+    "pickup_zone", "dropoff_zone", "hour", "dayofweek", 
+    "month", "is_weekend", "week_of_year", "week_of_month"
+]
 
-#  Added base_pred, osrm facts, and our calculated interactions
+# Numeric features including base_pred, osrm facts, and our calculated interactions
 NUMERIC_FEATURES = [
-    "passenger_count", 
     "osrm_time", 
     "osrm_distance", 
     "base_pred",          # The baseline scale
-    "baseline_vs_osrm",   # Absolute traffic delay (seconds)
-    "time_ratio"          # Relative traffic multiplier (e.g. 1.5x)
+    "baseline_vs_osrm"    # Absolute traffic delay (seconds)
 ]
 
 FEATURES = CATEGORICAL_FEATURES + NUMERIC_FEATURES
-
 
 
 def main() -> None:
@@ -73,7 +73,13 @@ def main() -> None:
         df["dayofweek"] = df["requested_at"].dt.dayofweek.astype("int8")
         df["is_weekend"] = (df["dayofweek"] >= 5).astype("int8") 
         df["month"] = df["requested_at"].dt.month.astype("int8")
-        df["passenger_count"] = df["passenger_count"].astype("int8")
+        
+        # Calculate week of the year
+        df["week_of_year"] = df["requested_at"].dt.isocalendar().week.astype("int8")
+        
+        # Calculate week of the month (Days 1-7 = week 1, 8-14 = week 2, etc.)
+        df["week_of_month"] = ((df["requested_at"].dt.day - 1) // 7 + 1).astype("int8")
+        
     print(f"  features extracted in {time.time() - t0_feat:.1f}s")
 
     # --- 2. Vectorized Baseline Generation ---
@@ -102,15 +108,12 @@ def main() -> None:
         df["base_pred"] = df["hourly_med"].fillna(df["route_med"]).fillna(global_median)
         df["target_residual"] = df["duration_seconds"] - df["base_pred"]
         
-        # ✅ Merge OSRM Data
+        # Merge OSRM Data
         df = df.merge(osrm_df, on=["pickup_zone", "dropoff_zone"], how="left")
         
-        # ✅ Create the Interaction Features
+        # Create the Interaction Features
         # 1. Absolute difference (Traffic delay in seconds)
         df["baseline_vs_osrm"] = df["base_pred"] - df["osrm_time"]
-        
-        # 2. Relative ratio (Traffic congestion multiplier). Add +1.0 to prevent DivByZero.
-        df["time_ratio"] = df["base_pred"] / (df["osrm_time"] + 1.0)
         
         # Clean up temporary columns
         df.drop(columns=["hourly_med", "route_med"], inplace=True)
@@ -211,11 +214,11 @@ def main() -> None:
     print("  Top 20 Worst Predictions:")
     worst_20 = dev.nlargest(20, "abs_error")
     
-    # Updated columns to include dayofweek, osrm_distance, and osrm_time
+    # Updated columns to include week_of_year and week_of_month
     display_cols = [
-        "pickup_zone", "dropoff_zone", "dayofweek", "hour", 
-        "osrm_distance", "osrm_time", "duration_seconds", 
-        "final_pred", "abs_error"
+        "pickup_zone", "dropoff_zone", "week_of_year", "week_of_month", 
+        "dayofweek", "hour", "osrm_distance", "osrm_time", 
+        "duration_seconds", "final_pred", "abs_error"
     ]
     print(worst_20[display_cols].to_string(index=False))
 
