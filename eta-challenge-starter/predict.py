@@ -74,14 +74,17 @@ def predict(request: dict) -> float:
     windspeed_mps = float(w.get("windspeed_mps", 3.0))
     visibility_m = float(w.get("visibility_m", 16000.0))
 
-    # 5. Fallback Median Cascade (base_pred)
+    # 5. Fallback Median Cascade (base_pred) - FIXED OSRM TIER
     base_pred = _HOURLY_ZONE.get((pz, dz, hour))
     if base_pred is None:
         base_pred = _ZONE_ROUTE.get((pz, dz))
         if base_pred is None:
             base_pred = _HOURLY_CLUSTER.get((pc, dc, hour))
             if base_pred is None:
-                base_pred = _CLUSTER_ROUTE.get((pc, dc), _GLOBAL_MEDIAN)
+                base_pred = _CLUSTER_ROUTE.get((pc, dc))
+                if base_pred is None:
+                    # Use OSRM time if available, otherwise Global Median
+                    base_pred = osrm_time if not math.isnan(osrm_time) else _GLOBAL_MEDIAN
 
     # 6. Construct Feature Vector (Order MUST match training script)
     # CATEGORICAL_FEATURES + NUMERIC_FEATURES
@@ -95,7 +98,7 @@ def predict(request: dict) -> float:
         osrm_time, 
         osrm_dist, 
         base_pred, 
-        (base_pred - osrm_time) if not math.isnan(osrm_time) else 0.0, # baseline_vs_osrm
+        (base_pred - osrm_time) if not math.isnan(osrm_time) else math.nan, # FIXED NaN HANDLING
         temp_c, 
         windspeed_mps, 
         visibility_m, 

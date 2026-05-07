@@ -1,10 +1,16 @@
-
 import polars as pl
 
-def create_nyc_weather_features(weather_path, zones_path, output_path):
-    # 1. Load the data 
-    # infer_schema_length is increased to safely handle the messy columns in the weather dataset
-    weather_df = pl.read_csv(weather_path, infer_schema_length=10000, null_values=["", "NA"])
+def create_nyc_weather_features(weather_paths, zones_path, output_path):
+    # 1. Load and combine the weather data 
+    print(f"Loading weather files: {weather_paths}...")
+    
+    # Read all weather files in the list and combine them vertically into one DataFrame
+    weather_dfs = [
+        pl.read_csv(path, infer_schema_length=10000, null_values=["", "NA"]) 
+        for path in weather_paths
+    ]
+    weather_df = pl.concat(weather_dfs, how="vertical")
+    
     zones_df = pl.read_csv(zones_path)
 
     print("Parsing NOAA ISD string formats...")
@@ -24,7 +30,6 @@ def create_nyc_weather_features(weather_path, zones_path, output_path):
         pl.col("VIS").str.split(",").list.get(0).cast(pl.Float32).alias("raw_vis"),
         
         # Boolean flags for Rain and Snow using the REM (METAR notes) column
-        # Using Regex to find specific weather codes like 'RA' (Rain), 'SN' (Snow), 'DZ' (Drizzle)
         pl.col("REM").str.contains(r"(?i)\b(RA|-RA|\+RA|DZ)\b").fill_null(False).alias("Is_Raining"),
         pl.col("REM").str.contains(r"(?i)\b(SN|-SN|\+SN)\b").fill_null(False).alias("Is_Snowing")
     ])
@@ -39,6 +44,7 @@ def create_nyc_weather_features(weather_path, zones_path, output_path):
     print("Aggregating weather to hourly frequency...")
     
     # 3. Aggregate multiple intra-hour readings into a single hourly row
+    # The .sort("Hour") here guarantees 2024 data comes perfectly after 2023
     hourly_weather = parsed_weather.group_by("Hour").agg([
         pl.col("Temp_C").mean(),
         pl.col("WindSpeed_mps").mean(),
@@ -57,7 +63,6 @@ def create_nyc_weather_features(weather_path, zones_path, output_path):
     print("Executing cross-join with taxi zones...")
     
     # 4. Cross Join: Broadcast this hourly weather to EVERY taxi zone
-    # We create a dummy column in both dataframes to perform the Cartesian product
     hourly_weather = hourly_weather.with_columns(pl.lit(1).alias("cross_key"))
     zones_df = zones_df.with_columns(pl.lit(1).alias("cross_key"))
 
@@ -67,9 +72,9 @@ def create_nyc_weather_features(weather_path, zones_path, output_path):
     nyc_weather_zones.write_csv(output_path)
     print(f"Success! Generated continuous and boolean weather features saved to {output_path}")
 
-# Run the pipeline
+# Run the pipeline with BOTH files
 create_nyc_weather_features(
-    weather_path="weather_data.csv", 
+    weather_paths=["weather_data.csv", "weather_data_24.csv"], # Passed as a list
     zones_path="taxi_zone_lookup.csv", 
     output_path="nyc_weather.csv"
 )

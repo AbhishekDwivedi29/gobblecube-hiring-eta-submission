@@ -79,8 +79,8 @@ def clean_base(paths: list[Path]) -> pd.DataFrame:
         & (clean_df["_ts"].dt.year == 2023)
         & ~((clean_df["pickup_zone"] == 264) & (clean_df["dropoff_zone"] == 264)) # NEW: Drop 264 to 264 trips
         & ~((clean_df["pickup_zone"] == 265) & (clean_df["dropoff_zone"] == 265)) # NEW: Drop 265 to 265 trips
-        & ~((clean_df["pickup_zone"] == 264) & (clean_df["dropoff_zone"] == 265)) # NEW: Drop 265 to 265 trips
-        & ~((clean_df["pickup_zone"] == 265) & (clean_df["dropoff_zone"] == 264)) # NEW: Drop 265 to 265 trips
+        & ~((clean_df["pickup_zone"] == 264) & (clean_df["dropoff_zone"] == 265)) # NEW: Drop 264 to 265 trips
+        & ~((clean_df["pickup_zone"] == 265) & (clean_df["dropoff_zone"] == 264)) # NEW: Drop 265 to 264 trips
     )
     
     clean_df = clean_df.loc[mask].reset_index(drop=True)
@@ -142,16 +142,16 @@ def split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def apply_leak_free_thresholds(train: pd.DataFrame, dev: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Calculates 99th percentile limits on train ONLY and applies to both train and dev."""
+    """Calculates 95th percentile limits on train ONLY and applies to both train and dev."""
     
     # 1. Isolate same-zone trips strictly from the training set
     train_same_zone = train[train["pickup_zone"] == train["dropoff_zone"]]
     
     # 2. Calculate thresholds for specific known routes
-    p99_thresholds = train_same_zone.groupby("pickup_zone")["duration_seconds"].quantile(0.99)
+    p99_thresholds = train_same_zone.groupby("pickup_zone")["duration_seconds"].quantile(0.95)
     
     # 3. Calculate a global fallback for unseen routes in dev
-    global_p99 = train_same_zone["duration_seconds"].quantile(0.97)
+    global_p99 = train_same_zone["duration_seconds"].quantile(0.99)
 
     def filter_outliers(df: pd.DataFrame) -> pd.DataFrame:
         is_same_zone = df["pickup_zone"] == df["dropoff_zone"]
@@ -189,7 +189,7 @@ def main() -> None:
     print("\nStep 4: train/dev split (to prevent data leakage)")
     train, dev = split(df)
 
-    print("\nStep 5: calculate & apply 99th percentile limits (same-zone)")
+    print("\nStep 5: calculate & apply 95th percentile limits (same-zone)")
     train, dev = apply_leak_free_thresholds(train, dev)
     
     print("\nStep 6: save final outputs")
