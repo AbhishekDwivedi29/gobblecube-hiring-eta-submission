@@ -13,4 +13,6 @@ data/taxi_zones/
 # Docker cache
 .docker_cache/
 osrm_data
+hourly_lookup_model.pkl
+*.csv
 *.pkl

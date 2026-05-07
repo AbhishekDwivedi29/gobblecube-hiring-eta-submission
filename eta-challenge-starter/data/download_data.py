@@ -118,7 +118,7 @@ def apply_speed_ratio_filter(df: pd.DataFrame, osrm_csv_path: str | Path) -> pd.
     speed_ratio = actual_speed_kmph / merged["speed_kmph"].replace(0.0, pd.NA)
     
     # Create masks
-    ratio_mask = (speed_ratio >= 0.2) & (speed_ratio <= 1.5)
+    ratio_mask = (speed_ratio >= 0.25) & (speed_ratio <= 1.5)
     
     # Preserve same-zone trips. OSRM gives them 0 distance/speed, causing ratio to be NA.
     # They are strictly required for the thresholds in Step 4.
@@ -129,7 +129,7 @@ def apply_speed_ratio_filter(df: pd.DataFrame, osrm_csv_path: str | Path) -> pd.
     filtered_df = df.loc[final_mask].reset_index(drop=True)
     
     dropped_count = initial_count - len(filtered_df)
-    print(f"  Dropped {dropped_count:,} records outside speed ratio 0.2 - 1.5")
+    print(f"  Dropped {dropped_count:,} records outside speed ratio 0.25 - 1.5")
     
     return filtered_df
 
