@@ -15,4 +15,4 @@ data/taxi_zones/
 osrm_data
 hourly_lookup_model.pkl
 *.csv
-*.pkl
+hourly_lookup_model.pkl
